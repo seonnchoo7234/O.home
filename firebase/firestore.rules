@@ -69,7 +69,11 @@ service cloud.firestore {
       );
 
       // 쓰기: 로그인 회원 — 방명록만 비로그인 방문자도 남길 수 있음(닉네임+비밀번호 방식)
-      allow create: if isContent(coll) && (signedIn() || coll == 'guestbook');
+      // 작성자(authorId)를 자기 자신으로 묶는다 — 남의 이름으로 글을 만들 수 없게 (관리자는 예외)
+      allow create: if isContent(coll) && (
+        (signedIn() && (request.resource.data.authorId == request.auth.uid || isAdmin()))
+        || coll == 'guestbook'
+      );
 
       // 수정·삭제: 작성자 본인 또는 관리자
       allow update, delete: if isContent(coll)

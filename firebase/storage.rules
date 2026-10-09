@@ -12,9 +12,17 @@ service firebase.storage {
   match /b/{bucket}/o {
     match /ohome/{allPaths=**} {
       allow read: if true;
-      allow write: if request.auth != null
-        && request.resource.size < 20 * 1024 * 1024;
-      allow delete: if request.auth != null;
+      // 올리기: 로그인 회원 + 20MB 이하 + 소유자 표식(owner)을 자기 uid로
+      allow create: if request.auth != null
+        && request.resource.size < 20 * 1024 * 1024
+        && request.resource.metadata.owner == request.auth.uid;
+      // 덮어쓰기: 파일 주인만
+      allow update: if request.auth != null
+        && request.resource.size < 20 * 1024 * 1024
+        && resource.metadata.owner == request.auth.uid;
+      // 지우기: 파일 주인만 (임의 회원이 남의 파일을 지우던 구멍 수정)
+      allow delete: if request.auth != null
+        && resource.metadata.owner == request.auth.uid;
     }
   }
 }

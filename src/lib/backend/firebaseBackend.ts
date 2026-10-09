@@ -376,6 +376,8 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
       await stMod.uploadBytes(r, blob, {
         contentType: blob.type || 'application/octet-stream',
         cacheControl: 'public, max-age=31536000, immutable',
+        // 소유자 표식 — Storage 규칙이 남의 파일 덮어쓰기·삭제를 막을 수 있게 (v2.x)
+        customMetadata: { owner: auth.currentUser?.uid ?? '' },
       });
       return await stMod.getDownloadURL(r);
     },

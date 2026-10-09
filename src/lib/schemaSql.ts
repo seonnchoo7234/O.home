@@ -19,13 +19,8 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
--- ── 2. 가입코드 (초대코드 방식) ──────────────────────────────
-create table if not exists public.invite_codes (
-  code text primary key,
-  created_at timestamptz not null default now(),
-  used_by uuid references auth.users(id),
-  used_at timestamptz
-);
+-- ── 2. (폐지) 초대/가입코드 — v2.x에서 제거됨. 아래 「정리」 구문이
+--       기존 설치의 invite_codes 테이블과 정책을 지운다.
 
 -- ── 3. 사이트 설정 (테마·폰트·메뉴·메인 위젯·게시판 설정 등) ──
 create table if not exists public.site_settings (
@@ -123,13 +118,16 @@ begin
     -- 쓰기: 로그인 회원 (방명록만 아래에서 비로그인 허용으로 덮어씀)
     execute format('drop policy if exists "insert" on public.%I', t);
     execute format($p$
-      create policy "insert" on public.%I for insert to authenticated with check (true)$p$, t);
+      create policy "insert" on public.%I for insert to authenticated
+        with check (author_id = auth.uid() or public.is_admin())$p$, t);
 
     -- 수정·삭제: 본인 · 편집 권한을 받은 회원(editor_ids) · 관리자
     execute format('drop policy if exists "update" on public.%I', t);
     execute format($p$
       create policy "update" on public.%I for update to authenticated
         using (author_id = auth.uid() or public.is_admin()
+               or auth.uid()::text = any(editor_ids))
+        with check (author_id = auth.uid() or public.is_admin()
                or auth.uid()::text = any(editor_ids))$p$, t);
 
     execute format('drop policy if exists "delete" on public.%I', t);
@@ -156,30 +154,22 @@ create policy "insert" on public.notifications for insert with check (true);
 
 -- ── 7. 사이트 설정 권한 (읽기 공개 · 쓰기 관리자) ────────────
 alter table public.profiles enable row level security;
-alter table public.invite_codes enable row level security;
 alter table public.site_settings enable row level security;
 
 drop policy if exists "profiles_select" on public.profiles;
 create policy "profiles_select" on public.profiles for select using (true);
 drop policy if exists "profiles_update_own" on public.profiles;
 create policy "profiles_update_own" on public.profiles for update to authenticated
-  using (auth.uid() = id or public.is_admin());
+  using (auth.uid() = id or public.is_admin())
+  with check ((auth.uid() = id and role = 'member') or public.is_admin());
 -- 프로필 저장은 upsert(INSERT 경로)라 INSERT 정책이 없으면 행이 이미 있어도 거부된다
 -- ("new row violates row-level security policy" — v2.0 포크 제보). 자기 행만 만들 수 있게 허용.
 drop policy if exists "profiles_insert_own" on public.profiles;
 create policy "profiles_insert_own" on public.profiles for insert to authenticated
-  with check (auth.uid() = id);
+  with check (auth.uid() = id and role = 'member');
 drop policy if exists "profiles_delete_admin" on public.profiles;
 create policy "profiles_delete_admin" on public.profiles for delete to authenticated
   using (public.is_admin());
-
-drop policy if exists "invite_select" on public.invite_codes;
-create policy "invite_select" on public.invite_codes for select using (true);
-drop policy if exists "invite_write" on public.invite_codes;
-create policy "invite_write" on public.invite_codes for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
-drop policy if exists "invite_use" on public.invite_codes;
-create policy "invite_use" on public.invite_codes for update using (used_by is null);
 
 drop policy if exists "settings_select" on public.site_settings;
 create policy "settings_select" on public.site_settings for select using (true);
@@ -197,7 +187,8 @@ create policy "ohome_read" on storage.objects for select using (bucket_id = 'oho
 drop policy if exists "ohome_write" on storage.objects;
 create policy "ohome_write" on storage.objects for insert to authenticated with check (bucket_id = 'ohome');
 drop policy if exists "ohome_update" on storage.objects;
-create policy "ohome_update" on storage.objects for update to authenticated using (bucket_id = 'ohome');
+create policy "ohome_update" on storage.objects for update to authenticated
+  using (bucket_id = 'ohome' and (owner = auth.uid() or public.is_admin()));
 drop policy if exists "ohome_delete" on storage.objects;
 create policy "ohome_delete" on storage.objects for delete to authenticated
   using (bucket_id = 'ohome' and (owner = auth.uid() or public.is_admin()));
@@ -214,6 +205,12 @@ begin
     end;
   end loop;
 end $$;
+
+-- ── 9.5 초대/가입코드 폐지 — 기존 설치 정리 (v2.x) ──────────
+drop policy if exists "invite_select" on public.invite_codes;
+drop policy if exists "invite_write" on public.invite_codes;
+drop policy if exists "invite_use" on public.invite_codes;
+drop table if exists public.invite_codes;
 
 -- ── 10. 스키마 캐시 갱신 (중요) ──────────────────────────────
 -- PostgREST(= REST API)는 테이블·컬럼 목록을 캐시해 둔다. SQL로 컬럼을 새로 추가해도
