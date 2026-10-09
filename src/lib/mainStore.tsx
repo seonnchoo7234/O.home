@@ -1,6 +1,6 @@
 ﻿'use client';
 // 메인 위젯 시스템 + 편집모드 상태 (기획서 4.0)
-// 저장소: localStorage → 추후 Supabase site_settings 로 이전
+// 저장소: localStorage
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { ConfirmModal } from '@/components/ui/Modal';

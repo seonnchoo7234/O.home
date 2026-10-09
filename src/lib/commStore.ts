@@ -1,6 +1,6 @@
 ﻿'use client';
 // 커미션 (4.18) — 커미션 목록 · 상태 뱃지 · 슬롯 · 신청자 리스트 · 커미션 설정
-// 저장: localStorage (→ Supabase 이전 예정)
+// 저장: localStorage
 import { useCallback, useEffect, useState } from 'react';
 import type { CropValue } from '@/components/ui/CropEditor';
 import type { Visibility } from './charStore';

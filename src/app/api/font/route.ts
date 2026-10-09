@@ -8,8 +8,6 @@
 // 아무 주소나 대신 받아 주는 통로가 되지 않게 저장소 호스트만 허용한다.
 const ALLOWED = [
   /(^|\.)firebasestorage\.googleapis\.com$/,
-  /(^|\.)supabase\.co$/,
-  /(^|\.)supabase\.in$/,
 ];
 
 export async function GET(req: Request) {

@@ -1,5 +1,5 @@
 ﻿'use client';
-// BGM 저장소 (4.1) — 재생목록·설정 localStorage (→ Supabase 이전 예정)
+// BGM 저장소 (4.1) — 재생목록·설정 localStorage
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { newId } from './postStore';
 import { getRawSetting, setSetting } from './settingStore';

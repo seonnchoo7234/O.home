@@ -170,7 +170,7 @@ function RoadviewPageInner() {
   const { user, isAdmin } = useAuth();
   const toast = useToast();
   // 업로드·댓글 권한 3단계 (4.10 v1.7 — 환경설정 > 메뉴 관리의 로드뷰 항목).
-  // 방문자(비로그인) 실사용은 Supabase 익명 처리 시 — mock 단계에선 로그인 전제
+  // 방문자(비로그인) 실사용은 익명 로그인 연동 시 — mock 단계에선 로그인 전제
   const [menuSet] = useMenuSettings();
   const allow = (p: MenuPerm) => (p === 'admin' ? isAdmin : p === 'member' ? !!user : true);
   const [itemsAll, setItemsAll, roadLoaded] = useLocalList<RoadItem>('ohome.road.v1', ROAD_SEED);

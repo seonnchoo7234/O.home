@@ -2,7 +2,7 @@
 // Firebase 백엔드 — Firestore(문서=항목) + Auth + Storage
 // 권한 규칙: firebase/firestore.rules · firebase/storage.rules
 //
-// Supabase 판과 같은 모양으로 맞춘 부분:
+// 인터페이스 메모:
 //  · 컬렉션 이름 동일 (posts, characters, …)
 //  · 문서 = 항목 하나, 필드는 { data, authorId, visibility, sort }
 //  · 관리자 판정은 meta/owner 문서 — 첫 로그인 계정이 소유자로 등록된다(규칙이 1회만 허용)
@@ -86,7 +86,7 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
    * 로그인 상태에 맞는 목록 질의 조건.
    *
    * Firestore는 **규칙으로 못 읽을 문서가 섞일 수 있는 질의를 통째로 거부한다.**
-   * (Supabase의 RLS는 행을 조용히 걸러 주므로 조건 없이 읽어도 되지만, 여기서는 아니다.)
+   * (규칙이 행을 조용히 걸러 주지 않으므로 목록을 읽을 때 조건이 필요하다.)
    * 조건 없이 읽으면 비로그인 방문자에게 전체공개 글까지 하나도 안 보인다 — 목록 요청 자체가 거부되기 때문.
    *
    * 정렬(orderBy)은 일부러 붙이지 않는다. where + orderBy 조합은 복합 색인을 만들어야 해서
@@ -214,6 +214,11 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
     },
 
     async signOut() { await authMod.signOut(auth); },
+
+    async getToken() {
+      const u = auth.currentUser;
+      return u ? await u.getIdToken() : null;
+    },
 
     async resetPassword(email) {
       try {

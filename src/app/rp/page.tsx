@@ -1,7 +1,7 @@
 ﻿'use client';
 // 역극 (4.9) — 실시간 채팅형. 방 개설(자관 기반/자유) · 참여자에게만 존재 노출 ·
 // 캐릭터 선택 발화(테마색 말풍선) · 지문(/desc) · 메시지 수정/삭제 · 완결/공개 전환 · HTML 내보내기
-// ※ 실시간 송수신·입력 중 표시·참여자 전원 동의는 Supabase Realtime 연동 시 활성화 (현재 localStorage)
+// ※ 실시간 송수신·입력 중 표시·참여자 전원 동의는 실시간 DB 연동 시 활성화 (현재 localStorage)
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useLocalList, newId } from '@/lib/postStore';
@@ -377,7 +377,7 @@ ${rows}
                       {/* 완결 취소 — 다시 진행중으로 (공개 상태였다면 비공개로 복귀) */}
                       <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 10.5 }}
                         onClick={() => patchRoom({ status: 'ongoing', isPublic: false })}>REOPEN</button>
-                      {/* 공개 전환 — 참여자 전원 동의 흐름은 Supabase 연동 시 (현재는 개설자/관리자 전환) */}
+                      {/* 공개 전환 — 참여자 전원 동의 흐름은 실시간 연동 시 (현재는 개설자/관리자 전환) */}
                       <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 10.5 }}
                         onClick={() => patchRoom({ isPublic: !sel.isPublic })}>
                         {sel.isPublic ? 'UNPUBLISH' : 'PUBLISH'}

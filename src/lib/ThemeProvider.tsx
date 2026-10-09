@@ -3,7 +3,7 @@
 // · 모드 전환은 각 모드의 수정본을 불러올 뿐 리셋하지 않음
 // · 포인트 자동은 기준색/톤을 "변경했을 때만" 전체 재파생
 // · 변경은 즉시 미리보기(DOM)되지만 저장은 [SAVE]를 눌러야 확정 — 새로고침 시 저장본으로 복귀
-// TODO(0차→): Supabase 연결 시 site_settings 테이블로 저장 위치 이동
+// TODO: 서버 설정 저장소 연동 시 저장 위치 이동
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import {
   ThemeMode, PointTone, ThemeVars, ThemeState, ThemeStore, ThemePreset,

@@ -1,4 +1,4 @@
-﻿// 그림 로드뷰(4.10)·그림백업(4.11)·TRPG 백업(4.3) 데이터 — localStorage (→ Supabase/R2 이전 예정)
+﻿// 그림 로드뷰(4.10)·그림백업(4.11)·TRPG 백업(4.3) 데이터 — localStorage
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import type { Comment, FoldType } from './postStore';
 import type { CropValue } from '@/components/ui/CropEditor';

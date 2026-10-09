@@ -28,9 +28,9 @@ export type Progress = (msg: string, done?: number, total?: number) => void;
 
 /* ---------- 이미지 참조 ---------- */
 
-/** 저장소가 만든 이미지 주소인지 (Supabase Storage / Firebase Storage) */
+/** 저장소가 만든 이미지 주소인지 (Firebase Storage) */
 export function isFileUrl(s: string): boolean {
-  return /\/storage\/v1\/object\/public\//.test(s) || /firebasestorage\.googleapis\.com/.test(s);
+  return /firebasestorage\.googleapis\.com/.test(s);
 }
 
 /**

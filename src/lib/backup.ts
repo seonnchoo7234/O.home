@@ -13,7 +13,6 @@ export const MEMBER_KEYS = [
   'ohome.mockreg.v1',    // 브라우저 계정(로컬 모드)
   'ohome.mockuser.v1',   // 로그인 세션
   'ohome.membertags.v1', // 회원 태그
-  'ohome.invite.v1',     // 가입코드
   'ohome.setup.v1',      // 설치 완료 표시
 ];
 
@@ -53,10 +52,10 @@ export const RESET_EXTRA: ResetGroup[] = [
   { key: 'main', label: '메인 위젯 구성', desc: '위젯 종류·배치·크기', keys: ['ohome.main.v1'] },
   { key: 'site', label: '사이트 설정', desc: '테마·폰트·메뉴·로고·게시판/커미션 설정', keys: SITE_KEYS },
   { key: 'images', label: '업로드 이미지 전체', desc: '모든 그림·썸네일 저장소', keys: [] },
-  // 로그인 계정 자체는 서비스(Firebase Authentication / Supabase Auth) 소관이라 홈에서 지울 수 없다
+  // 로그인 계정 자체는 서비스(Firebase Authentication) 소관이라 홈에서 지울 수 없다
   {
     key: 'members', label: '회원 목록',
-    desc: '홈의 회원 목록·태그·가입코드 (로그인 계정 자체는 서비스 콘솔에서 지워야 합니다)',
+    desc: '홈의 회원 목록·태그 (로그인 계정은 환경설정 > 회원/보안에서 관리합니다)',
     keys: MEMBER_KEYS,
   },
 ];
@@ -192,7 +191,7 @@ export async function resetGroups(selected: string[]): Promise<ResetReport> {
       }
     }
     // 회원 계정 — 홈의 회원 목록(profiles)을 비운다.
-    // 로그인 계정 자체(Firebase Authentication / Supabase Auth)는 관리자 키가 있어야 지울 수 있어
+    // 로그인 계정 자체(Firebase Authentication)는 관리자 키가 있어야 지울 수 있어
     // 공개 홈에서는 불가능하다 — 콘솔에서 지워야 한다(설치 가이드 안내).
     if (selected.includes('members')) {
       try {

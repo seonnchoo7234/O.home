@@ -5,6 +5,12 @@ import { backend, isServerMode } from './backend';
 
 export interface MemberLite { id: string; nickname: string; role?: 'admin' | 'member' }
 
+/** 회원 목록 변경 알림 — 관리자가 회원을 추가·삭제하면 화면의 목록을 다시 받게 한다 */
+export const MEMBERS_EVT = 'ohome-members';
+export function notifyMembersChanged() {
+  try { window.dispatchEvent(new Event(MEMBERS_EVT)); } catch { /* 무시 */ }
+}
+
 /** 로컬(브라우저) 계정 목록 — 서버 없이 개발할 때 */
 export function memberPool(): MemberLite[] {
   const base: MemberLite[] = [
@@ -27,12 +33,23 @@ export function useMembers(): MemberLite[] {
   const [list, setList] = useState<MemberLite[]>(() => (isServerMode() ? [] : memberPool()));
   useEffect(() => {
     const be = backend();
-    if (!isServerMode() || !be) { setList(memberPool()); return; }
+    if (!isServerMode() || !be) {
+      // 로컬 모드 — 계정이 추가·삭제되면 목록을 다시 만든다 (관리자 회원 추가/삭제 반영)
+      const refresh = () => setList(memberPool());
+      refresh();
+      window.addEventListener(MEMBERS_EVT, refresh);
+      return () => window.removeEventListener(MEMBERS_EVT, refresh);
+    }
     let alive = true;
-    be.listMembers()
-      .then(rows => { if (alive) setList(rows.map(r => ({ id: r.id, nickname: r.nickname, role: r.role }))); })
-      .catch(() => { /* 권한·네트워크 문제면 빈 목록 */ });
-    return () => { alive = false; };
+    const load = () => {
+      be.listMembers()
+        .then(rows => { if (alive) setList(rows.map(r => ({ id: r.id, nickname: r.nickname, role: r.role }))); })
+        .catch(() => { /* 권한·네트워크 문제면 빈 목록 */ });
+    };
+    load();
+    const onChange = () => load();
+    window.addEventListener(MEMBERS_EVT, onChange);
+    return () => { alive = false; window.removeEventListener(MEMBERS_EVT, onChange); };
   }, []);
   return list;
 }

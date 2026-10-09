@@ -1,21 +1,17 @@
 'use client';
-// 백엔드 어댑터 (v2.0) — Supabase / Firebase 두 버전을 같은 인터페이스로 쓴다.
+// 백엔드 어댑터 (v2.0) — Firebase 한 가지 버전만 쓴다 (v2.x에서 Supabase 지원 제거).
 //
-// 화면 코드는 이 파일의 타입만 알고, 어떤 서비스에 붙었는지는 모른다.
-// 새 백엔드를 추가하려면 이 인터페이스만 구현하면 된다.
-
-export type BackendKind = 'supabase' | 'firebase';
+// 화면 코드는 이 파일의 타입만 알고, 실제 서비스에 어떻게 붙었는지는 모른다.
+export type BackendKind = 'firebase';
 
 /** 설치 화면에서 입력받는 연결 정보 — 모두 공개돼도 되는 값이다(보안은 서버 규칙이 담당) */
-export type BackendConfig =
-  | { kind: 'supabase'; url: string; anonKey: string }
-  | {
-      kind: 'firebase';
-      apiKey: string; authDomain: string; projectId: string;
-      storageBucket: string; appId: string; messagingSenderId?: string;
-      /** Firestore 데이터베이스 ID — 비우면 (default). 콘솔에서 다른 이름으로 만들었을 때만 필요 */
-      databaseId?: string;
-    };
+export type BackendConfig = {
+  kind: 'firebase';
+  apiKey: string; authDomain: string; projectId: string;
+  storageBucket: string; appId: string; messagingSenderId?: string;
+  /** Firestore 데이터베이스 ID — 비우면 (default). 콘솔에서 다른 이름으로 만들었을 때만 필요 */
+  databaseId?: string;
+};
 
 /** 로그인 사용자 */
 export interface BackendUser {
@@ -50,6 +46,9 @@ export interface Backend {
   signIn(id: string, password: string): Promise<{ ok: boolean; error?: string }>;
   signUp(id: string, password: string, nickname: string): Promise<{ ok: boolean; error?: string }>;
   signOut(): Promise<void>;
+  /** 현재 로그인 세션의 접근 토큰 — 관리자 전용 서버 라우트(/api/admin/members) 호출용.
+   *  서버가 이 토큰을 직접 검증해 관리자임을 확인한다 (클라이언트 주장을 믿지 않는다). */
+  getToken(): Promise<string | null>;
   resetPassword(email: string): Promise<{ ok: boolean; error?: string }>;
   updateProfile(patch: { nickname?: string; avatarUrl?: string | null; avatarColor?: string | null }): Promise<{ ok: boolean; error?: string }>;
   /** 첫 계정을 이 홈의 관리자로 등록 (관리자가 아직 없을 때만) */
@@ -81,9 +80,9 @@ export interface Backend {
   deleteFile(ref: string): Promise<void>;
 
   /** 회원 프로필(닉네임·아바타) 삭제 — 홈의 회원 목록에서 사라진다.
-   *  **로그인 계정 자체는 지울 수 없다.** Firebase Authentication / Supabase Auth의 계정 삭제는
-   *  관리자 키가 있어야 하는데, 공개 홈에 그 키를 두면 누구나 계정을 지울 수 있게 된다.
-   *  계정 삭제는 각 서비스 콘솔에서 (설치 가이드에 안내). */
+   *  **로그인 계정 자체는 이 함수로 지울 수 없다.** Firebase Auth 계정 삭제는 관리자 키가
+   *  있어야 하는데, 공개 홈에 그 키를 두면 누구나 계정을 지울 수 있게 된다. 계정 생성·삭제는
+   *  관리자 전용 서버 라우트(/api/admin/members, 서비스 계정 키는 서버 환경변수에만)에서 한다. */
   deleteMember(id: string): Promise<void>;
 }
 
@@ -153,7 +152,7 @@ export function diffList<T extends ListItem>(prev: T[], next: T[]) {
  *
  *  listHidden 필드가 있는 항목(TRPG 로그 목록 문서 등)은 "목록에 뜨는지"가 곧 질의(list) 단계의
  *  공개 여부다 — 실제 열람 권한(item.visibility)과는 별개로 다룬다 (v2.0 사용자 확정: "나만보기여도
- *  목록에는 표시돼야해"). Firestore·Supabase RLS 둘 다 list/get을 같은 규칙으로 묶어 판단하므로,
+ *  목록에는 표시돼야해"). Firestore 규칙은 list/get을 같은 규칙으로 묶어 판단하므로,
  *  이 필드가 있는 문서에는 민감한 내용(본문 등)을 절대 함께 두면 안 된다 — 질의로 노출되면
  *  단일 조회 권한도 함께 열리기 때문. (그래서 TRPG 로그는 본문을 별도 문서로 분리해 저장한다.) */
 export function metaOf(item: ListItem, uid: string | null, floor = 'public') {

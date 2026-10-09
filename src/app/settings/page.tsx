@@ -2,7 +2,7 @@
 // 환경설정 (기획서 5장) — 0차: 「디자인」 탭(테마) 실동작.
 // 나머지 카테고리는 해당 기능 마일스톤에서 함께 구현.
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { useAuth, inviteCode, setInviteCode } from '@/lib/auth';
+import { useAuth } from '@/lib/auth';
 import { useMembers } from '@/lib/members';
 import { useTheme } from '@/lib/ThemeProvider';
 import { ThemeVars } from '@/lib/theme';
@@ -52,13 +52,12 @@ import { PageTitle, EditableDesc, getPageText, setPageText } from '@/components/
 import { putBlob } from '@/lib/blobStore';
 import { getSetting, setSetting, pushLocalSettings, unsyncedSettingKeys, SETTING_KEYS } from '@/lib/settingStore';
 import { isServerMode, createBackend, backend } from '@/lib/backend';
-import type { BackendConfig, BackendKind } from '@/lib/backend/types';
+import type { BackendConfig } from '@/lib/backend/types';
 import { CONTENT_COLLECTIONS } from '@/lib/backend/types';
 import { visFloorOf } from '@/lib/visFloor';
 import { validateConfig, configFileText, saveLocalConfig, parseFirebaseSnippet, serverConfig, serverConfigSource } from '@/lib/serverConfig';
 import { migrateTo, findOrphanFiles } from '@/lib/transfer';
 import { FIRESTORE_RULES, STORAGE_RULES } from '@/lib/firebaseRules';
-import { SCHEMA_SQL } from '@/lib/schemaSql';
 
 const CATEGORIES = [
   '디자인', '메인 페이지', '위젯', '메뉴 관리', '게시판 관리', '자관 질문', '커미션', 'TRPG', '감상타래', '메모장',
@@ -966,35 +965,34 @@ function RelQPane() {
   );
 }
 
-/** 회원/보안 탭 (5.2, v1.9 mock 범위) — 가입코드 변경 + 회원 목록(가입 계정 삭제).
- *  그룹별 권한 매트릭스·가입 승인제·비밀번호 정책은 Supabase 연동 시 확장 */
+/** 회원/보안 탭 (5.2) — 관리자가 회원 계정을 직접 만들고 지운다.
+ *  공개 회원가입(가입코드)은 없앴다 — 계정 생성·삭제는 관리자 전용 서버 라우트
+ *  (/api/admin/members, 서비스 계정 키는 서버 환경변수에만)가 처리한다. */
 function MemberPane() {
   const toast = useToast();
   const del = useConfirmDelete();
   const router = useRouter();   // 회원 이름 클릭 → 회원 정보 페이지 (v1.9)
-  const [code, setCode] = useState('');
-  const [codeLoaded, setCodeLoaded] = useState(false);
-  const [regVer, setRegVer] = useState(0);   // 가입 계정 삭제 후 목록 갱신용
-  const [removedIds, setRemovedIds] = useState<string[]>([]);   // 서버 모드에서 방금 지운 회원
-  useEffect(() => { setCode(inviteCode()); setCodeLoaded(true); }, []);
-  void regVer;
+  const { createMember, removeMember } = useAuth();
+  const [removedIds, setRemovedIds] = useState<string[]>([]);   // 방금 지운 회원 (목록 갱신 전 낙관 반영)
+
+  // 회원 추가 폼
+  const [nEmail, setNEmail] = useState('');
+  const [nPw, setNPw] = useState('');
+  const [nNick, setNNick] = useState('');
+  const [adding, setAdding] = useState(false);
 
   const members = useMembers();
   const serverOn2 = isServerMode();
-  // 계정 삭제는 서비스 콘솔에서만 가능 — 바로 열 수 있게 이 홈의 프로젝트 주소를 만들어 둔다
-  const authConsoleUrl = (() => {
-    const c = serverConfig();
-    if (c?.kind === 'firebase') return `https://console.firebase.google.com/project/${c.projectId}/authentication/users`;
-    if (c?.kind === 'supabase') {
-      const m = c.url.match(/^https:\/\/([a-z0-9-]+)\.supabase\.co/i);
-      return m ? `https://supabase.com/dashboard/project/${m[1]}/auth/users` : '';
-    }
-    return '';
-  })();
-  const [delMember, setDelMember] = useState<{ id: string; nickname: string } | null>(null);
-  const registry = (() => {
-    try { return JSON.parse(localStorage.getItem('ohome.mockreg.v1') ?? '{}') as Record<string, unknown>; } catch { return {}; }
-  })();
+
+  const doAdd = async () => {
+    if (!nEmail.trim() || !nPw) { toast('이메일과 비밀번호를 입력해 주세요'); return; }
+    setAdding(true);
+    const r = await createMember({ email: nEmail.trim(), password: nPw, nickname: nNick.trim() });
+    setAdding(false);
+    if (!r.ok) { toast(r.error ?? '회원을 만들지 못했습니다'); return; }
+    setNEmail(''); setNPw(''); setNNick('');
+    toast('회원 계정을 만들었습니다');
+  };
 
   // 회원 목록 — 검색 · 10명 페이지네이션 · 태그 그룹화 (v1.9)
   const PER_MEMBERS = 10;
@@ -1031,20 +1029,16 @@ function MemberPane() {
   return (
     <div className="set-sec">
       <h3>회원/보안</h3>
-      <div className="d">가입코드와 회원 목록 관리</div>
+      <div className="d">회원 계정을 관리자가 직접 만들고 지웁니다</div>
 
-      {/* 다른 탭 행들과 같은 .set-row — 라벨은 왼쪽, 입력·버튼은 같은 줄 오른쪽 (v2.0 사용자 지적:
-          예전엔 라벨·설명·컨트롤이 각자 줄을 차지해 다른 탭과 통일감이 없고 줄바꿈도 보기 안 좋았다) */}
+      {/* 회원 추가 — 관리자만. 계정 생성은 서버 라우트가 서비스 키로 처리한다 (브라우저에 키 없음) */}
       <div className="set-row" style={{ marginTop: 8, flexWrap: 'wrap' }}>
-        <div className="l"><b>가입코드</b><small>회원가입 시 입력해야 하는 초대코드 — 아는 사람에게만 공유</small></div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <KInput value={code} onChange={e => setCode(e.target.value)} style={{ width: 220 }} />
-          <button className="btn btn-dark" disabled={!codeLoaded}
-            onClick={() => {
-              if (!code.trim()) { toast('가입코드를 입력해 주세요'); return; }
-              setInviteCode(code);
-              toast('가입코드가 변경되었습니다');
-            }}>SAVE</button>
+        <div className="l"><b>회원 추가</b><small>이메일·비밀번호로 새 회원 계정을 만듭니다</small></div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <KInput value={nEmail} onChange={e => setNEmail(e.target.value)} placeholder="이메일" style={{ width: 190 }} />
+          <KInput value={nPw} onChange={e => setNPw(e.target.value)} placeholder="비밀번호 (6자 이상)" type="password" style={{ width: 150 }} />
+          <KInput value={nNick} onChange={e => setNNick(e.target.value)} placeholder="닉네임 (선택)" style={{ width: 140 }} />
+          <button className="btn btn-dark" disabled={adding} onClick={doAdd}>{adding ? '만드는 중…' : 'ADD'}</button>
         </div>
       </div>
 
@@ -1107,13 +1101,11 @@ function MemberPane() {
               // 회원 뱃지(.pill)와 같은 규격 — padding·글씨·radius 동일 (v1.9)
               <button className="btn btn-ghost" style={{ padding: '4px 11px', fontSize: 10.5, borderRadius: 20, lineHeight: 'normal', letterSpacing: '.04em' }}
                 onClick={() => {
-                  // 서버 모드는 계정 삭제가 콘솔 소관이라 안내를 거치는 모달로 (사용자 확정)
-                  if (serverOn2) { setDelMember({ id: m.id, nickname: m.nickname }); return; }
-                  del.ask(`회원 「${m.nickname}」 계정을 삭제하시겠습니까?`, () => {
-                    const reg = { ...registry };
-                    delete reg[m.id];
-                    try { localStorage.setItem('ohome.mockreg.v1', JSON.stringify(reg)); } catch { /* 무시 */ }
-                    setRegVer(v => v + 1);
+                  // 계정(Auth)과 프로필을 함께 지운다 — 관리자 전용 서버 라우트가 서비스 키로 처리
+                  del.ask(`회원 「${m.nickname}」 계정을 삭제하시겠습니까?`, async () => {
+                    const r = await removeMember(m.id);
+                    if (!r.ok) { toast(r.error ?? '계정을 지우지 못했습니다'); return; }
+                    setRemovedIds(v => [...v, m.id]);
                     toast('계정이 삭제되었습니다');
                   }, '이 계정으로 다시 로그인할 수 없게 됩니다. 작성한 글은 그대로 남습니다.');
                 }}>DELETE</button>
@@ -1129,43 +1121,6 @@ function MemberPane() {
           <Pager page={mPage} total={Math.ceil(filteredMembers.length / PER_MEMBERS)} onChange={setMPage} />
         </div>
       )}
-      {/* 회원 내보내기 — 계정 삭제는 콘솔에서만 되므로 두 단계를 한 흐름으로 안내 (v2.0 사용자 확정) */}
-      <ConfirmModal open={delMember !== null} title={`회원 「${delMember?.nickname ?? ''}」 내보내기`}
-        wide
-        body={
-          <div style={{ display: 'grid', gap: 10 }}>
-            <p style={{ margin: 0 }}>
-              <b>① 먼저 로그인 계정을 지웁니다.</b><br />
-              계정 삭제는 관리자 권한이 필요한 작업이라 홈에서는 할 수 없습니다
-              (그럴 수 있게 만들면 홈에 넣은 관리자 키가 공개돼 누구나 남의 계정을 지울 수 있게 됩니다).
-              아래 버튼으로 콘솔을 열어 <b>{delMember?.nickname}</b> 계정을 지워 주세요.
-            </p>
-            <p style={{ margin: 0 }}>
-              <b>② 그다음 목록에서 지웁니다.</b><br />
-              계정을 지우지 않고 목록에서만 지우면 <b>그 사람은 계속 로그인할 수 있습니다.</b>
-              작성한 글은 어느 쪽이든 그대로 남습니다.
-            </p>
-          </div>
-        }
-        onClose={() => setDelMember(null)}
-        buttons={[
-          ...(authConsoleUrl ? [{
-            label: '① 콘솔에서 계정 지우기 ↗', kind: 'dark' as const,
-            onClick: () => window.open(authConsoleUrl, '_blank', 'noopener'),
-          }] : []),
-          {
-            label: '② 목록에서 지우기', kind: 'accent' as const,
-            onClick: () => {
-              const t = delMember;
-              setDelMember(null);
-              if (!t) return;
-              void backend()?.deleteMember(t.id)
-                .then(() => { setRemovedIds(v => [...v, t.id]); toast('회원 목록에서 지웠습니다'); })
-                .catch(() => toast('지우지 못했습니다 — 관리자 계정으로 로그인했는지 확인해 주세요'));
-            },
-          },
-          { label: 'CANCEL', kind: 'ghost' as const, onClick: () => setDelMember(null) },
-        ]} />
       {del.element}
       {/* 포크는 GitHub이 자동으로 동기화해 주지 않는다 — 원본 저장소에 업데이트가 올라와도
           내 포크·배포에는 반영 안 된 채로 남는다(오늘 만든 기능이 안 보이는 흔한 원인, v2.0 사용자 요청).
@@ -1265,39 +1220,24 @@ function SecurityRulesRow() {
       <h3>보안 규칙</h3>
       <div className="d">
         앱이 업데이트되며 규칙이 바뀔 때가 있습니다 — 새 기능이 갑자기 안 보이거나 목록이 비어 보이거나
-        저장이 거부되면 아래를 다시 적용해 보세요.{' '}
-        {cfg?.kind === 'firebase'
-          ? 'Firestore 콘솔의 규칙 화면에 그대로 덮어써도 안전합니다(기존 컬렉션 권한은 그대로 유지).'
-          : 'Supabase 콘솔 → SQL Editor에 통째로 붙여넣고 Run — 여러 번 실행해도 안전합니다(이미 있으면 건너뜀, 쌓아 둔 글·회원은 그대로).'}
+        저장이 거부되면 아래를 다시 적용해 보세요. Firestore 콘솔의 규칙 화면에 그대로 덮어써도 안전합니다
+        (기존 컬렉션 권한은 그대로 유지).
       </div>
-      {cfg?.kind === 'firebase' ? (
-        <div className="setup-row">
-          <button className="btn btn-dark" onClick={() => copy(FIRESTORE_RULES, 'fs')}>
-            {copied === 'fs' ? '복사됨 ✓' : 'Firestore 규칙 복사'}
-          </button>
-          <button className="btn btn-dark" onClick={() => copy(STORAGE_RULES, 'st')}>
-            {copied === 'st' ? '복사됨 ✓' : 'Storage 규칙 복사'}
-          </button>
-          <button className="btn btn-ghost" onClick={() => setOpen(o => !o)}>{open ? '내용 접기' : '내용 보기'}</button>
-        </div>
-      ) : (
-        /* Supabase도 여기서 바로 복사 (v2.0 포크 제보) — 예전에는 「schema.sql을 실행하라」는
-           안내 한 줄뿐이라, 규칙을 다시 적용하러 온 사람이 빈 화면을 만났다 */
-        <div className="setup-row">
-          <button className="btn btn-dark" onClick={() => copy(SCHEMA_SQL, 'sql')}>
-            {copied === 'sql' ? '복사됨 ✓' : '설치 SQL 복사'}
-          </button>
-          <button className="btn btn-ghost" onClick={() => setOpen(o => !o)}>{open ? '내용 접기' : '내용 보기'}</button>
-        </div>
-      )}
-      {open && (cfg?.kind === 'firebase' ? (
+      <div className="setup-row">
+        <button className="btn btn-dark" onClick={() => copy(FIRESTORE_RULES, 'fs')}>
+          {copied === 'fs' ? '복사됨 ✓' : 'Firestore 규칙 복사'}
+        </button>
+        <button className="btn btn-dark" onClick={() => copy(STORAGE_RULES, 'st')}>
+          {copied === 'st' ? '복사됨 ✓' : 'Storage 규칙 복사'}
+        </button>
+        <button className="btn btn-ghost" onClick={() => setOpen(o => !o)}>{open ? '내용 접기' : '내용 보기'}</button>
+      </div>
+      {open && (
         <>
           <pre className="setup-sql">{FIRESTORE_RULES}</pre>
           <pre className="setup-sql">{STORAGE_RULES}</pre>
         </>
-      ) : (
-        <pre className="setup-sql">{SCHEMA_SQL}</pre>
-      ))}
+      )}
     </div>
   );
 }
@@ -1633,24 +1573,20 @@ function DataPane() {
   };
   const toggle = (k: string, v: boolean) => setPicked(p => (v ? [...new Set([...p, k])] : p.filter(x => x !== k)));
 
-  /* ---------- 데이터베이스 이전 (v2.0) — 다른 프로젝트/다른 서비스로 통째 옮기기 ---------- */
+  /* ---------- 데이터베이스 이전 (v2.0) — 다른 Firebase 프로젝트로 통째 옮기기 ---------- */
   const [migOpen, setMigOpen] = useState(false);
-  const [migKind, setMigKind] = useState<BackendKind>('supabase');
-  const [migSb, setMigSb] = useState({ url: '', anonKey: '' });
   const [migFb, setMigFb] = useState({ apiKey: '', authDomain: '', projectId: '', storageBucket: '', appId: '' });
   const [migState, setMigState] = useState<'idle' | 'checking' | 'ready' | 'running' | 'done'>('idle');
   const [migMsg, setMigMsg] = useState('');
 
-  const migCfg = (): BackendConfig => (migKind === 'firebase'
-    ? {
-        kind: 'firebase',
-        apiKey: migFb.apiKey.trim(),
-        authDomain: migFb.authDomain.trim() || `${migFb.projectId.trim()}.firebaseapp.com`,
-        projectId: migFb.projectId.trim(),
-        storageBucket: migFb.storageBucket.trim() || `${migFb.projectId.trim()}.appspot.com`,
-        appId: migFb.appId.trim(),
-      }
-    : { kind: 'supabase', url: migSb.url.trim(), anonKey: migSb.anonKey.trim() });
+  const migCfg = (): BackendConfig => ({
+    kind: 'firebase',
+    apiKey: migFb.apiKey.trim(),
+    authDomain: migFb.authDomain.trim() || `${migFb.projectId.trim()}.firebaseapp.com`,
+    projectId: migFb.projectId.trim(),
+    storageBucket: migFb.storageBucket.trim() || `${migFb.projectId.trim()}.appspot.com`,
+    appId: migFb.appId.trim(),
+  });
 
   const migCheck = async () => {
     const bad = validateConfig(migCfg());
@@ -1778,7 +1714,7 @@ function DataPane() {
 
       {/* 백업 두 갈래 (v1.9 사용자 확정) — 회원 계정 포함 여부 선택 */}
       <div className="set-row" style={{ flexWrap: 'wrap' }}>
-        <div className="l"><b>백업 내보내기</b><small>글·캐릭터·설정 + 이미지 → zip · 회원 계정(가입자·가입코드) 포함 여부 선택</small></div>
+        <div className="l"><b>백업 내보내기</b><small>글·캐릭터·설정 + 이미지 → zip · 회원 목록 포함 여부 선택</small></div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className="btn btn-accent" style={{ padding: '9px 18px', opacity: busy ? 0.5 : 1 }}
             disabled={busy} onClick={() => doExport(false)}>↓ 데이터만</button>
@@ -1812,7 +1748,7 @@ function DataPane() {
 
       {/* 데이터베이스 이전 (v2.0) — 새 프로젝트·다른 서비스로 통째 옮기기 */}
       <div className="set-row" style={{ flexWrap: 'wrap' }}>
-        <div className="l"><b>데이터베이스 이전</b><small>다른 프로젝트나 다른 서비스(Supabase ↔ Firebase)로 글·설정·이미지를 통째로 옮깁니다</small></div>
+        <div className="l"><b>데이터베이스 이전</b><small>다른 Firebase 프로젝트로 글·설정·이미지를 통째로 옮깁니다</small></div>
         <button className="btn btn-ghost" style={{ padding: '9px 20px' }}
           onClick={() => { setMigOpen(true); setMigState('idle'); setMigMsg(''); }}>이전하기</button>
       </div>
@@ -1824,39 +1760,24 @@ function DataPane() {
           {migState === 'ready' && <button className="btn btn-accent" onClick={migRun}>이전 시작</button>}
           {migState === 'done' && <button className="btn btn-accent" onClick={migSwitch}>새 DB로 전환</button>}
         </>}>
-        <div className="mini-seg" style={{ marginBottom: 12 }}>
-          <button className={migKind === 'supabase' ? 'on' : ''} onClick={() => setMigKind('supabase')}>Supabase</button>
-          <button className={migKind === 'firebase' ? 'on' : ''} onClick={() => setMigKind('firebase')}>Firebase</button>
+        <div style={{ display: 'grid', gap: 8 }}>
+          <label className="k-label">설정 붙여넣기 (firebaseConfig)</label>
+          <KTextarea style={{ minHeight: 84, fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 11.5 }}
+            onChange={e => {
+              const v = parseFirebaseSnippet(e.target.value);
+              if (v) setMigFb(f => ({
+                apiKey: v.apiKey ?? f.apiKey, authDomain: v.authDomain ?? f.authDomain,
+                projectId: v.projectId ?? f.projectId, storageBucket: v.storageBucket ?? f.storageBucket,
+                appId: v.appId ?? f.appId,
+              }));
+            }} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div><label className="k-label">apiKey</label><KInput value={migFb.apiKey} onChange={e => setMigFb(f => ({ ...f, apiKey: e.target.value }))} /></div>
+            <div><label className="k-label">projectId</label><KInput value={migFb.projectId} onChange={e => setMigFb(f => ({ ...f, projectId: e.target.value }))} /></div>
+          </div>
+          <div><label className="k-label">appId</label><KInput value={migFb.appId} onChange={e => setMigFb(f => ({ ...f, appId: e.target.value }))} /></div>
+          <p className="hint" style={{ margin: 0 }}>새 프로젝트라면 Firestore·Storage 보안 규칙을 먼저 붙여넣어 두세요.</p>
         </div>
-
-        {migKind === 'supabase' ? (
-          <div style={{ display: 'grid', gap: 8 }}>
-            <label className="k-label">Project URL</label>
-            <KInput value={migSb.url} onChange={e => setMigSb(s => ({ ...s, url: e.target.value }))} placeholder="https://xxxx.supabase.co" />
-            <label className="k-label">anon public key</label>
-            <KInput value={migSb.anonKey} onChange={e => setMigSb(s => ({ ...s, anonKey: e.target.value }))} />
-            <p className="hint" style={{ margin: 0 }}>새 프로젝트라면 먼저 스키마 SQL을 실행해 두세요 — 설치 화면과 같은 내용입니다.</p>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gap: 8 }}>
-            <label className="k-label">설정 붙여넣기 (firebaseConfig)</label>
-            <KTextarea style={{ minHeight: 84, fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 11.5 }}
-              onChange={e => {
-                const v = parseFirebaseSnippet(e.target.value);
-                if (v) setMigFb(f => ({
-                  apiKey: v.apiKey ?? f.apiKey, authDomain: v.authDomain ?? f.authDomain,
-                  projectId: v.projectId ?? f.projectId, storageBucket: v.storageBucket ?? f.storageBucket,
-                  appId: v.appId ?? f.appId,
-                }));
-              }} />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <div><label className="k-label">apiKey</label><KInput value={migFb.apiKey} onChange={e => setMigFb(f => ({ ...f, apiKey: e.target.value }))} /></div>
-              <div><label className="k-label">projectId</label><KInput value={migFb.projectId} onChange={e => setMigFb(f => ({ ...f, projectId: e.target.value }))} /></div>
-            </div>
-            <div><label className="k-label">appId</label><KInput value={migFb.appId} onChange={e => setMigFb(f => ({ ...f, appId: e.target.value }))} /></div>
-            <p className="hint" style={{ margin: 0 }}>새 프로젝트라면 Firestore·Storage 보안 규칙을 먼저 붙여넣어 두세요.</p>
-          </div>
-        )}
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
           <button className="btn btn-dark" style={{ height: 33, padding: '0 16px', fontSize: 11 }}
