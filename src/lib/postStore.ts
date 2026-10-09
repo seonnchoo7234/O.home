@@ -1,9 +1,9 @@
 'use client';
 // 게시판·방명록 타입 + 공용 목록 저장소 훅
-// v2.0: 서버(Supabase) 연결이 있으면 DB, 없으면 localStorage — 화면 코드는 동일하다.
+// v2.0: 서버(Firebase) 연결이 있으면 DB, 없으면 localStorage — 화면 코드는 동일하다.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PostMode } from './sanitize';
-import { isServerMode } from './supabase';
+import { isServerMode } from './backend';
 import { TABLE_OF, fetchList, syncList, subscribeTable } from './db';
 import { currentUserId } from './currentUser';
 

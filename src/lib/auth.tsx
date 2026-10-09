@@ -1,10 +1,10 @@
 'use client';
-// 인증 컨텍스트 (v2.0) — 백엔드 어댑터(Supabase / Firebase)에 위임한다.
+// 인증 컨텍스트 (v2.0) — 백엔드 어댑터(Firebase)에 위임한다.
 // 백엔드 설정이 없으면(개발·오프라인) 브라우저 안의 로컬 계정으로 동작한다.
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { backend, isServerMode } from './backend';
 import { setCurrentUserId } from './currentUser';
-import { getSetting, setSetting } from './settingStore';
+import { notifyMembersChanged } from './members';
 
 export type Role = 'admin' | 'member' | 'guest';
 
@@ -23,7 +23,10 @@ interface AuthCtx {
   user: User | null;          // null = 비로그인
   isAdmin: boolean;
   login: (id: string, password: string) => Promise<Result>;
-  signup: (id: string, password: string, nickname: string, inviteCode: string, email?: string) => Promise<Result>;
+  /** 관리자 전용 — 새 회원 계정을 만든다 (서버 라우트 경유, 로컬 모드에서는 브라우저 계정) */
+  createMember: (input: { email: string; password: string; nickname: string }) => Promise<Result>;
+  /** 관리자 전용 — 회원 계정과 프로필을 지운다 */
+  removeMember: (id: string) => Promise<Result>;
   findId: (email: string) => Promise<Result & { foundId?: string }>;
   resetPassword: (email: string) => Promise<Result & { tempPassword?: string }>;
   logout: () => Promise<void>;
@@ -38,16 +41,7 @@ interface AuthCtx {
 const Ctx = createContext<AuthCtx | null>(null);
 const MOCK_KEY = 'ohome.mockuser.v1';
 const MOCK_REG_KEY = 'ohome.mockreg.v1';
-const INVITE_KEY = 'ohome.invite.v1';    // 가입코드 — 환경설정 > 회원/보안
 const SETUP_KEY = 'ohome.setup.v1';      // 설치 화면을 마쳤는지
-
-/** 현재 가입코드 — 관리자가 정한 값(서버 공유), 없으면 기본 WELCOME */
-export function inviteCode(): string {
-  return getSetting<string>(INVITE_KEY, 'WELCOME') || 'WELCOME';
-}
-export function setInviteCode(code: string) {
-  setSetting(INVITE_KEY, code.trim());
-}
 
 export function isSetupDone(): boolean {
   try { return !!localStorage.getItem(SETUP_KEY); } catch { return false; }
@@ -129,23 +123,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { ok: true };
   }, [server, be]);
 
-  // 회원가입 — 가입코드(초대코드) 방식
-  const signup = useCallback(async (id: string, password: string, nickname: string, code: string): Promise<Result> => {
-    if (!id || !password || !nickname) return { ok: false, error: '아이디·비밀번호·닉네임을 모두 입력해 주세요.' };
-    if (code !== inviteCode()) return { ok: false, error: '가입코드가 올바르지 않습니다.' };
+  // 회원 계정 만들기 — 관리자 전용. 서버 모드에서는 서비스 키를 쥔 서버 라우트가 처리하고,
+  // 이 함수는 관리자가 맞는지 확인할 토큰만 실어 보낸다 (브라우저에 서비스 키를 두지 않는다).
+  const createMember = useCallback(async (input: {
+    email: string; password: string; nickname: string;
+  }): Promise<Result> => {
+    const email = input.email.trim();
+    const nickname = input.nickname.trim() || email.split('@')[0];
+    if (!email || !input.password) return { ok: false, error: '이메일과 비밀번호를 입력해 주세요.' };
+    if (input.password.length < 6) return { ok: false, error: '비밀번호는 6자 이상이어야 합니다.' };
     if (server && be) {
-      const r = await be.signUp(id.trim(), password, nickname.trim());
-      if (!r.ok) return { ok: false, error: r.error ?? '가입에 실패했습니다.' };
-      // 계정이 만들어지는 순간 로그인 상태가 되며 사용자 정보가 먼저 계산되는데,
-      // 그때는 닉네임(프로필)이 아직 저장되기 전이라 이메일이 이름 자리에 들어간다.
-      // 저장이 끝난 지금 다시 읽어 이름을 바로잡는다.
-      try { const u = await be.currentUser(); if (u) setUser(u); } catch { /* 무시 */ }
-      return { ok: true };
+      const token = await be.getToken();
+      if (!token) return { ok: false, error: '로그인이 필요합니다.' };
+      try {
+        const res = await fetch('/api/admin/members', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ email, password: input.password, nickname }),
+        });
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) return { ok: false, error: j.error ?? '회원을 만들지 못했습니다.' };
+        notifyMembersChanged();
+        return { ok: true };
+      } catch { return { ok: false, error: '서버에 연결하지 못했습니다.' }; }
     }
-    if (MOCK_ACCOUNTS[id] || mockRegistry()[id]) return { ok: false, error: '이미 사용 중인 아이디입니다.' };
+    if (MOCK_ACCOUNTS[email] || mockRegistry()[email]) return { ok: false, error: '이미 사용 중인 아이디입니다.' };
     const reg = mockRegistry();
-    reg[id] = { password, user: { id, nickname, role: 'member' } };
+    reg[email] = { password: input.password, user: { id: email, nickname, role: 'member' } };
     try { localStorage.setItem(MOCK_REG_KEY, JSON.stringify(reg)); } catch { /* 무시 */ }
+    notifyMembersChanged();
+    return { ok: true };
+  }, [server, be]);
+
+  // 회원 계정 삭제 — 관리자 전용. 서버 모드에서는 계정(Auth)과 프로필을 함께 지운다.
+  const removeMember = useCallback(async (id: string): Promise<Result> => {
+    if (server && be) {
+      const token = await be.getToken();
+      if (!token) return { ok: false, error: '로그인이 필요합니다.' };
+      try {
+        const res = await fetch(`/api/admin/members?id=${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) return { ok: false, error: j.error ?? '회원을 지우지 못했습니다.' };
+        notifyMembersChanged();
+        return { ok: true };
+      } catch { return { ok: false, error: '서버에 연결하지 못했습니다.' }; }
+    }
+    const reg = mockRegistry();
+    delete reg[id];
+    try { localStorage.setItem(MOCK_REG_KEY, JSON.stringify(reg)); } catch { /* 무시 */ }
+    notifyMembersChanged();
     return { ok: true };
   }, [server, be]);
 
@@ -223,7 +252,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <Ctx.Provider value={{
       user, isAdmin: user?.role === 'admin', ready,
-      login, signup, findId, resetPassword, logout, updateProfile, mock: !server,
+      login, createMember, removeMember, findId, resetPassword, logout, updateProfile, mock: !server,
     }}>
       {children}
     </Ctx.Provider>

@@ -1,6 +1,6 @@
 'use client';
 // 역극 (4.9) — 실시간 채팅형. 현재는 localStorage 단계(같은 브라우저 내 동작 확인용)이며
-// 실시간 송수신·입력 중 표시·참여자 전원 동의 흐름은 Supabase Realtime 연동 시 활성화.
+// 실시간 송수신·입력 중 표시·참여자 전원 동의 흐름은 실시간 DB 연동 시 활성화.
 export interface RpMessage {
   id: string;
   // 캐릭터 발화 / 지문(가운데 서술). 'player'(회원 본인 발화)는 없앴다 —

@@ -2,8 +2,8 @@
 // 서버 연결 설정 — 빌드 시점 env가 아니라 **런타임**에 읽는다. (v2.0)
 //
 // 배포본(zip)을 받은 사람이 재빌드 없이 자기 프로젝트를 붙일 수 있어야 하므로,
-// 설치 화면에서 입력한 값을 그대로 쓴다. Supabase의 anon key도, Firebase의 apiKey도
-// 원래 브라우저에 공개되는 값이고(어차피 번들에 들어간다) 실제 보안은 서버 규칙이 담당한다.
+// 설치 화면에서 입력한 값을 그대로 쓴다. Firebase의 apiKey도 원래 브라우저에 공개되는
+// 값이고(어차피 번들에 들어간다) 실제 보안은 서버 규칙이 담당한다.
 //
 // 읽는 순서:
 //   1) /ohome.config.json  — 배포에 올려 둔 공개 설정. **방문자 모두**가 이 값을 받는다.
@@ -39,7 +39,6 @@ function normalize(v: unknown): BackendConfig | null {
       databaseId: o.databaseId || undefined,
     };
   }
-  if (o.url && o.anonKey) return { kind: 'supabase', url: o.url, anonKey: o.anonKey };
   return null;
 }
 
@@ -58,9 +57,6 @@ export function saveLocalConfig(v: BackendConfig | null) {
 }
 
 function envConfig(): BackendConfig | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (url && anonKey) return { kind: 'supabase', url, anonKey };
   const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID;
@@ -105,17 +101,8 @@ export function configFileText(v: BackendConfig): string {
   return `${JSON.stringify(v, null, 2)}\n`;
 }
 
-/** 입력값 형식 검사 — 흔한 실수(대시보드 주소, service_role 키, 잘못 붙여넣은 설정)를 잡아 준다 */
+/** 입력값 형식 검사 — 흔한 실수(잘못 붙여넣은 설정)를 잡아 준다 */
 export function validateConfig(v: BackendConfig): string | null {
-  if (v.kind === 'supabase') {
-    if (!v.url.trim() || !v.anonKey.trim()) return 'Project URL과 anon key를 모두 입력해 주세요.';
-    if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(v.url.trim())) {
-      return 'Project URL 형식이 아닙니다 — https://xxxx.supabase.co 모양이어야 합니다.';
-    }
-    if (v.anonKey.trim().length < 40) return 'anon key가 너무 짧습니다 — 값을 끝까지 붙여넣었는지 확인해 주세요.';
-    if (/service_role/i.test(v.anonKey)) return 'service_role 키는 절대 넣으면 안 됩니다 — anon(공개) 키를 넣어 주세요.';
-    return null;
-  }
   if (!v.apiKey.trim() || !v.projectId.trim() || !v.appId.trim()) {
     return 'apiKey · projectId · appId는 반드시 필요합니다 — Firebase 콘솔의 웹 앱 설정을 그대로 붙여넣어 주세요.';
   }

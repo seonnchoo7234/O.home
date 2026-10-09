@@ -1,4 +1,4 @@
-// 캐릭터·자관 데이터 저장소 — localStorage (→ Supabase 이전 예정)
+// 캐릭터·자관 데이터 저장소 — localStorage
 // 기획서 4.4(캐릭터), 4.5(자관)
 export type Visibility = 'public' | 'member' | 'private'; // 공개범위 3단계
 

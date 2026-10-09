@@ -19,9 +19,7 @@ const httpOnly = (v?: string) => (v && /^https?:\/\//.test(v) ? v : undefined);
 const SETTING_KEY = 'ohome.site.v1';
 const FALLBACK: SiteMeta = { title: 'O.HOME' };
 
-type Cfg =
-  | { kind: 'firebase'; projectId: string; apiKey: string; databaseId?: string }
-  | { kind: 'supabase'; url: string; anonKey: string };
+type Cfg = { kind: 'firebase'; projectId: string; apiKey: string; databaseId?: string };
 
 /** 배포에 올라간 연결 설정 읽기 — 없으면 env, 그것도 없으면 null */
 async function readConfig(): Promise<Cfg | null> {
@@ -31,16 +29,12 @@ async function readConfig(): Promise<Cfg | null> {
     if (o.apiKey && o.projectId) {
       return { kind: 'firebase', projectId: o.projectId, apiKey: o.apiKey, databaseId: o.databaseId };
     }
-    if (o.url && o.anonKey) return { kind: 'supabase', url: o.url, anonKey: o.anonKey };
   } catch { /* 파일이 없으면 env로 */ }
   const pid = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   const key = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
   if (pid && key) {
     return { kind: 'firebase', projectId: pid, apiKey: key, databaseId: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_ID };
   }
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (url && anon) return { kind: 'supabase', url, anonKey: anon };
   return null;
 }
 
@@ -70,27 +64,12 @@ export async function siteMeta(): Promise<SiteMeta> {
   try {
     const cfg = await readConfig();
     if (!cfg) return FALLBACK;
-    if (cfg.kind === 'firebase') {
-      const db = cfg.databaseId && cfg.databaseId !== '(default)' ? cfg.databaseId : '(default)';
-      const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${encodeURIComponent(db)}`
-        + `/documents/settings/${encodeURIComponent(SETTING_KEY)}?key=${cfg.apiKey}`;
-      const res = await fetch(url, { next: { revalidate: 300 } });
-      if (!res.ok) return FALLBACK;
-      return fromFirestore(await res.json()) ?? FALLBACK;
-    }
-    const url = `${cfg.url.replace(/\/$/, '')}/rest/v1/site_settings?key=eq.${encodeURIComponent(SETTING_KEY)}&select=value`;
-    const res = await fetch(url, {
-      headers: { apikey: cfg.anonKey, Authorization: `Bearer ${cfg.anonKey}` },
-      next: { revalidate: 300 },
-    });
+    const db = cfg.databaseId && cfg.databaseId !== '(default)' ? cfg.databaseId : '(default)';
+    const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${encodeURIComponent(db)}`
+      + `/documents/settings/${encodeURIComponent(SETTING_KEY)}?key=${cfg.apiKey}`;
+    const res = await fetch(url, { next: { revalidate: 300 } });
     if (!res.ok) return FALLBACK;
-    const rows = await res.json() as
-      { value?: { title?: string; docTitle?: string; subtitle?: string; crawlDesc?: string; favicon?: string } }[];
-    const v = rows?.[0]?.value;
-    // 제목을 안 정했어도 설명·아이콘은 살린다 (위 Firestore 쪽과 같은 이유)
-    const t = (v?.docTitle || '').trim() || (v?.title ? `${v.title} — 개인홈` : '');
-    const favicon = httpOnly(v?.favicon);
-    return { title: t || FALLBACK.title, subtitle: v?.subtitle, crawlDesc: v?.crawlDesc, favicon };
+    return fromFirestore(await res.json()) ?? FALLBACK;
   } catch {
     return FALLBACK;   // 네트워크·권한 문제면 기본 제목으로
   }

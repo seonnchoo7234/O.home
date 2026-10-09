@@ -701,7 +701,7 @@ a{color:inherit;text-decoration:none}
   .re-sep{margin:0 2px;flex-shrink:0}
 }
 
-/* 설치 초기 화면 (v2.0) — 서버(Supabase) 연결 · 관리자 계정 · 설정 파일 / 백업 복원 */
+/* 설치 초기 화면 (v2.0) — 서버(Firebase) 연결 · 관리자 계정 · 설정 파일 / 백업 복원 */
 /* 첫 부팅(연결·설정 로딩) 대기 표시 — 400ms 넘게 걸릴 때만 나타난다(ServerBoot).
    배경은 body가 첫 페인트 전에 칠하므로 여기서는 덧칠하지 않는다 */
 .boot-wait{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none}
@@ -751,7 +751,7 @@ a{color:inherit;text-decoration:none}
 .setup-picks .warn{color:var(--accent);font-weight:600}
 .setup-ok{margin-top:12px;font-size:calc(11.5px*var(--fs,1));color:var(--accent);font-weight:600}
 .setup-back{width:100%;justify-content:center;margin-top:10px;font-size:11px}
-/* 백엔드 선택 카드 (Supabase / Firebase) */
+/* 백엔드 선택 카드 */
 .setup-pick{
   display:block;width:100%;text-align:left;margin-top:10px;padding:16px 18px;
   border:1.5px solid var(--line);border-radius:var(--radius-s);background:var(--panel-solid,#fff);transition:.15s;

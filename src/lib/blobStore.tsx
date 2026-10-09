@@ -1,6 +1,6 @@
 'use client';
 // 이미지/파일 저장 (v2.0)
-//  · 서버 모드: Supabase Storage 버킷(ohome)에 올리고, 저장하는 값은 공개 URL
+//  · 서버 모드: Firebase Storage에 올리고, 저장하는 값은 공개 URL
 //  · 로컬 모드: IndexedDB (파일 id만 데이터에 저장)
 // 화면 코드는 항상 "참조 문자열"만 다루므로 두 모드가 같은 코드로 동작한다.
 import React, { useEffect, useState } from 'react';

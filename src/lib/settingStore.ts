@@ -42,7 +42,7 @@ export const SETTING_KEYS = [
   'ohome.pagetext.v1', 'ohome.cursor.v1', 'ohome.bgm.v1', 'ohome.boardset.v1', 'ohome.boards.v1',
   'ohome.commset.v1', 'ohome.memoset.v1', 'ohome.threadset.v1', 'ohome.trpgset.v1',
   'ohome.relqsets.v1', 'ohome.main.v1', 'ohome.sched.v1',
-  'ohome.membertags.v1', 'ohome.invite.v1', 'ohome.roadnext.v1', 'ohome.repo.v1',
+  'ohome.membertags.v1', 'ohome.roadnext.v1', 'ohome.repo.v1',
   'ohome.sections.v1', 'ohome.intro.v1', 'ohome.links.v1',
 ];
 
@@ -89,7 +89,7 @@ export function getSetting<T>(key: string, fallback: T): T {
       const parsed = JSON.parse(raw);
       return (parsed == null ? fallback : parsed) as T;   // 예전에 저장된 "null" 문자열도 방어
     } catch {
-      // 예전에 문자열을 그대로 저장한 값(가입코드 등) 호환
+      // 예전에 문자열을 그대로 저장한 값 호환
       return (typeof fallback === 'string' ? raw : fallback) as T;
     }
   } catch { /* 무시 */ }
