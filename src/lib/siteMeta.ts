@@ -10,50 +10,64 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-export interface SiteMeta { title: string; subtitle?: string; crawlDesc?: string; favicon?: string }
+export interface SiteMeta {
+	title: string;
+	subtitle?: string;
+	crawlDesc?: string;
+	favicon?: string;
+	ogUrl?: string;
+	themeColor?: string;
+}
 
 /** 탭 아이콘은 **저장소 주소일 때만** 서버가 쓸 수 있다 —
  *  로컬 모드의 파일 id는 그 브라우저 안에서만 뜻이 있어 서버가 알 수 없다 (DocIcon이 화면에서 붙인다) */
 const httpOnly = (v?: string) => (v && /^https?:\/\//.test(v) ? v : undefined);
 
-const SETTING_KEY = 'ohome.site.v1';
+	const SETTING_KEY = 'ohome.site.v1';
 const FALLBACK: SiteMeta = { title: 'O.HOME' };
 
 type Cfg = { kind: 'firebase'; projectId: string; apiKey: string; databaseId?: string };
 
 /** 배포에 올라간 연결 설정 읽기 — 없으면 env, 그것도 없으면 null */
 async function readConfig(): Promise<Cfg | null> {
-  try {
-    const raw = await readFile(path.join(process.cwd(), 'public', 'ohome.config.json'), 'utf8');
-    const o = JSON.parse(raw) as Record<string, string>;
-    if (o.apiKey && o.projectId) {
-      return { kind: 'firebase', projectId: o.projectId, apiKey: o.apiKey, databaseId: o.databaseId };
-    }
-  } catch { /* 파일이 없으면 env로 */ }
-  const pid = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-  const key = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-  if (pid && key) {
-    return { kind: 'firebase', projectId: pid, apiKey: key, databaseId: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_ID };
-  }
-  return null;
+	try {
+		const raw = await readFile(path.join(process.cwd(), 'public', 'ohome.config.json'), 'utf8');
+		const o = JSON.parse(raw) as Record<string, string>;
+		if (o.apiKey && o.projectId) {
+			return { kind: 'firebase', projectId: o.projectId, apiKey: o.apiKey, databaseId: o.databaseId };
+		}
+	} catch { /* 파일이 없으면 env로 */ }
+	const pid = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+	const key = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+	if (pid && key) {
+		return { kind: 'firebase', projectId: pid, apiKey: key, databaseId: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_ID };
+	}
+	return null;
 }
 
 /** Firestore REST 응답에서 문자열 값 꺼내기 (문서는 타입 래핑이 붙어 온다) */
 function fromFirestore(doc: unknown): SiteMeta | null {
-  const fields = (doc as { fields?: Record<string, unknown> })?.fields;
-  const v = (fields?.value as { stringValue?: string; mapValue?: { fields?: Record<string, { stringValue?: string }> } });
-  // 설정은 JSON 문자열이 아니라 맵으로 저장된다
-  const m = v?.mapValue?.fields;
-  const title = m?.title?.stringValue;
-  const docTitle = m?.docTitle?.stringValue;
-  const subtitle = m?.subtitle?.stringValue;
-  const crawlDesc = m?.crawlDesc?.stringValue;
-  const favicon = httpOnly(m?.favicon?.stringValue);
-  // 제목을 안 정했어도 설명·아이콘은 살린다 — 예전엔 제목이 비면 통째로 버려서,
-  // 크롤링 문구만 적어 둔 경우 그 문구가 조용히 무시됐다 (v2.0)
-  const t = (docTitle || '').trim() || (title ? `${title} — 개인홈` : '');
-  if (!t && !crawlDesc && !subtitle && !favicon) return null;
-  return { title: t || FALLBACK.title, subtitle, crawlDesc, favicon };
+	const fields = (doc as { fields?: Record<string, unknown> })?.fields;
+	const v = (fields?.value as { stringValue?: string; mapValue?: { fields?: Record<string, { stringValue?: string }> } });
+	// 설정은 JSON 문자열이 아니라 맵으로 저장된다
+	const m = v?.mapValue?.fields;
+	const title = m?.title?.stringValue;
+	const docTitle = m?.docTitle?.stringValue;
+	const subtitle = m?.subtitle?.stringValue;
+	const crawlDesc = m?.crawlDesc?.stringValue;
+	const favicon = httpOnly(m?.favicon?.stringValue);
+
+	const ogUrl = httpOnly(m?.ogUrl?.stringValue);
+	const themeColor = m?.themeColor?.stringValue;
+
+	// 제목을 안 정했어도 설명·아이콘은 살린다 — 예전엔 제목이 비면 통째로 버려서,
+	// 크롤링 문구만 적어 둔 경우 그 문구가 조용히 무시됐다 (v2.0)
+	const t = (docTitle || '').trim() || (title ? `${title} — 개인홈` : '');
+	if (!t && !crawlDesc && !subtitle && !favicon) return null;
+	return { 
+		title: t || FALLBACK.title, subtitle, crawlDesc, favicon,
+		ogUrl, themeColor
+	};
 }
 
 /**
@@ -61,16 +75,16 @@ function fromFirestore(doc: unknown): SiteMeta | null {
  * 5분 캐시: 제목은 자주 바뀌지 않고, 매 요청마다 외부 호출을 하면 첫 응답이 느려진다.
  */
 export async function siteMeta(): Promise<SiteMeta> {
-  try {
-    const cfg = await readConfig();
-    if (!cfg) return FALLBACK;
-    const db = cfg.databaseId && cfg.databaseId !== '(default)' ? cfg.databaseId : '(default)';
-    const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${encodeURIComponent(db)}`
-      + `/documents/settings/${encodeURIComponent(SETTING_KEY)}?key=${cfg.apiKey}`;
-    const res = await fetch(url, { next: { revalidate: 300 } });
-    if (!res.ok) return FALLBACK;
-    return fromFirestore(await res.json()) ?? FALLBACK;
-  } catch {
-    return FALLBACK;   // 네트워크·권한 문제면 기본 제목으로
-  }
+	try {
+		const cfg = await readConfig();
+		if (!cfg) return FALLBACK;
+		const db = cfg.databaseId && cfg.databaseId !== '(default)' ? cfg.databaseId : '(default)';
+		const url = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/${encodeURIComponent(db)}`
+			+ `/documents/settings/${encodeURIComponent(SETTING_KEY)}?key=${cfg.apiKey}`;
+		const res = await fetch(url, { next: { revalidate: 300 } });
+		if (!res.ok) return FALLBACK;
+		return fromFirestore(await res.json()) ?? FALLBACK;
+	} catch {
+		return FALLBACK;   // 네트워크·권한 문제면 기본 제목으로
+	}
 }

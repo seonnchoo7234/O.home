@@ -1311,7 +1311,7 @@ function CrawlDescControl() {
   const { site, set } = useSiteDraft();
   return (
     <LiveInput value={site.crawlDesc ?? ''} onValue={v => set({ crawlDesc: v })}
-      placeholder="자캐놀이용 개인 아카이브"
+      placeholder="선초 개인 아카이브"
       style={{ width: 260, height: 35, boxSizing: 'border-box' }} />
   );
 }
