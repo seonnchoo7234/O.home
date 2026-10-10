@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { ThemeProvider } from '@/lib/ThemeProvider';
 import { AuthProvider } from '@/lib/auth';
@@ -29,17 +29,30 @@ import { siteMeta } from '@/lib/siteMeta';
  * 여기서 같은 설정을 한 번 읽어 제목을 맞춘다 (읽기 실패하면 기본값).
  */
 export async function generateMetadata(): Promise<Metadata> {
-  const { title, subtitle, crawlDesc, favicon } = await siteMeta();
+  const meta = await siteMeta();
+
   // 크롤링 설명 문구 (v2.0 사용자 요청) — 환경설정에서 직접 지정 > 서브타이틀 > 기본 문구
-  const description = crawlDesc?.trim() || subtitle?.trim() || '자캐놀이용 개인 아카이브';
+  const description = meta.crawlDesc?.trim() || meta.subtitle?.trim() || '선초 개인 아카이브"';
   return {
-    title,
-    description,
+    title: meta.title,
+    description : meta.crawlDesc || meta.subtitle,
     // 탭 아이콘 (v2.0 사용자 요청) — 지정했으면 기본 favicon.ico 대신 그것을 쓴다.
     // 지정이 없으면 icons를 아예 넣지 않아 Next의 기본 파일 처리를 그대로 둔다
-    ...(favicon ? { icons: { icon: favicon } } : {}),
-    openGraph: { title, description, type: 'website' },
-    twitter: { card: 'summary', title, description },
+    ...(meta.favicon ? { icons: { icon: meta.favicon } } : {}),
+    openGraph: { 
+	    title: meta.title,
+	    description: description,
+	    url: meta.ogUrl || 'https://o-home-b8b4npvm4-seonnchoo.vercel.app/',
+	    type: 'website' },
+    twitter: { card: 'summary', title: meta.title, description: description },
+  };
+}
+
+export async function generateViewport(): Promise<Viewport> {
+  const meta = await siteMeta();
+
+  return {
+    themeColor: meta.themeColor || '#ffd3d9',
   };
 }
 
@@ -57,11 +70,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* 다크리더 계열 확장의 강제 변색 잠금 (v2.0) — color-scheme을 무시하는 확장도 이 메타는 존중한다.
             테마 색은 전부 사이트 설정이 직접 관리하므로 외부 변색은 어떤 경로든 막는 게 맞다 */}
 	<meta name="darkreader-lock" />
-	<meta property="og:site_name" content="O.HOME" />
-	<meta property="og:title" content="선초 개인 아카이브" />
-	<meta property="og:description" content=":heartpulse:" />
-	<meta property="og:url" content="https://o-home-b8b4npvm4-seonnchoo.vercel.app/" />
-	<meta name="theme-color" content="#ffd3d9" />
 
 	{/* 테마 FOUC 방지 — <body> 안에 있으면 body 배경이 :root의 다크 기본값으로 먼저 페인트될 여지가
 	    있다(사용자 발견 — "처음 접속할 때 기본 다크모드가 깜빡") — body 자체가 파싱되는 순간 CSS만으로도
