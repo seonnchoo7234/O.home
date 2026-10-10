@@ -32,7 +32,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 	const val_site_name	= "O.HOME";
 	const val_title		= "선초 개인 아카이브";
-	const val_desc		= ":heartpulse:";
+	const val_desc		= "💗";
 	const val_ogurl		= "https://o-home-b8b4npvm4-seonnchoo.vercel.app/";
 
 
@@ -44,13 +44,14 @@ export async function generateMetadata(): Promise<Metadata> {
 			title: val_title,
 			description: val_desc,
 			url: val_ogurl,
-			type: 'website' },
-			twitter: {
-				card: 'summary',
-				title: val_title,
-				description: val_desc
-			},
-	};
+			type: 'website'
+		},
+		twitter: {
+			card: 'summary',
+			title: val_title,
+			description: val_desc
+		}
+	}
 }
 
 export async function generateViewport(): Promise<Viewport> {
