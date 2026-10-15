@@ -82,6 +82,14 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
   };
   authMod.onAuthStateChanged(auth, () => { ownerCache = undefined; });
 
+  /** 2FA 활성화 여부 — webauthn_credentials 서브컬렉션에 문서가 하나라도 있으면 ON */
+  const is2FAEnabled = async (uid: string): Promise<boolean> => {
+    try {
+      const snap = await getDocs(query(collection(db, 'profiles', uid, 'webauthn_credentials')));
+      return !snap.empty;
+    } catch { return false; }
+  };
+
   /**
    * 로그인 상태에 맞는 목록 질의 조건.
    *
@@ -196,7 +204,9 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
 
     async signIn(id, password) {
       try {
-        await authMod.signInWithEmailAndPassword(auth, id, password);
+        const cred = await authMod.signInWithEmailAndPassword(auth, id, password);
+        const u = cred.user;
+        if (await is2FAEnabled(u.uid)) return { ok: true, requires2FA: true, challengeId: "" };
         return { ok: true };
       } catch (e) { return { ok: false, error: humanError(e) }; }
     },
@@ -211,6 +221,46 @@ export async function createFirebaseBackend(cfg: FirebaseCfg): Promise<Backend> 
         if (r === TIMEOUT) return { ok: false, error: `${NO_REACH} (로그인 계정은 이미 만들어졌습니다)` };
         return { ok: true };
       } catch (e) { return { ok: false, error: humanError(e) }; }
+    },
+
+    async verify2FA(challengeId: string, assertion: any): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const res = await fetch('/api/auth/verify-2fa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeId, assertion }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) return { ok: false, error: j.error ?? '2FA 검증에 실패했습니다.' };
+      return { ok: true };
+    } catch (e) { return { ok: false, error: '서버에 연결하지 못했습니다.' }; }
+  },
+
+    async is2FAEnabled(uid: string): Promise<boolean> {
+      return is2FAEnabled(uid);
+    },
+
+    async getWebAuthnCredentials(uid: string): Promise<Array<{ id: string; publicKey: Uint8Array; counter: number; name: string }>> {
+      try {
+        const snap = await getDocs(query(collection(db, 'profiles', uid, 'webauthn_credentials')));
+        return snap.docs.map(d => {
+          const data = d.data() as { publicKey: number[]; counter: number; name: string };
+          return { id: d.id, publicKey: new Uint8Array(data.publicKey), counter: data.counter, name: data.name };
+        });
+      } catch { return []; }
+    },
+
+    async registerWebAuthnCredential(uid: string, credential: { id: string; publicKey: Uint8Array; counter: number; name: string }): Promise<void> {
+      await setDoc(doc(db, 'profiles', uid, 'webauthn_credentials', credential.id), {
+        publicKey: Array.from(credential.publicKey),
+        counter: credential.counter,
+        name: credential.name,
+        createdAt: Date.now(),
+      });
+    },
+
+    async removeWebAuthnCredential(uid: string, credentialId: string): Promise<void> {
+      await deleteDoc(doc(db, 'profiles', uid, 'webauthn_credentials', credentialId));
     },
 
     async signOut() { await authMod.signOut(auth); },

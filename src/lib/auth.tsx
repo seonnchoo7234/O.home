@@ -17,16 +17,18 @@ export interface User {
   email?: string;
 }
 
-type Result = { ok: boolean; error?: string };
+type Result = { ok: boolean; error?: string; requires2FA?: boolean; challengeId?: string };
 
 interface AuthCtx {
   user: User | null;          // null = 비로그인
   isAdmin: boolean;
   login: (id: string, password: string) => Promise<Result>;
+  verify2FA: (challengeId: string, assertion: any) => Promise<Result & { user?: User }>;
   /** 관리자 전용 — 새 회원 계정을 만든다 (서버 라우트 경유, 로컬 모드에서는 브라우저 계정) */
   createMember: (input: { email: string; password: string; nickname: string }) => Promise<Result>;
   /** 관리자 전용 — 회원 계정과 프로필을 지운다 */
   removeMember: (id: string) => Promise<Result>;
+  /** 아이디/비밀번호 찾기 (v1.9) — 가입 이메일로 */
   findId: (email: string) => Promise<Result & { foundId?: string }>;
   resetPassword: (email: string) => Promise<Result & { tempPassword?: string }>;
   logout: () => Promise<void>;
@@ -36,6 +38,9 @@ interface AuthCtx {
   /** 누가 보고 있는지 확인이 끝났는지 (v2.0) — 처음 한 박자는 늘 「비로그인」으로 보인다.
    *  그 사이에 권한을 판정하면 관리자에게도 「비공개」 화면이 번쩍인다. */
   ready: boolean;
+  /** 로그인 시도 후 2FA 필요 상태 — 로그인 페이지가 자동 리디렉션 방지용 */
+  pending2FA: boolean;
+  setPending2FA: (v: boolean) => void;
 }
 
 const Ctx = createContext<AuthCtx | null>(null);
@@ -95,6 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const be = backend();
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);   // 확인이 끝났는지 (v2.0)
+  const [pending2FA, setPending2FA] = useState(false);
 
   useEffect(() => {
     if (!server || !be) {
@@ -114,12 +120,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (id: string, password: string): Promise<Result> => {
     if (server && be) {
       const r = await be.signIn(id.trim(), password);
-      return r.ok ? { ok: true } : { ok: false, error: r.error ?? '로그인에 실패했습니다.' };
+      if (!r.ok) return { ok: false, error: r.error ?? '로그인에 실패했습니다.' };
+      if (r.requires2FA) {
+        setPending2FA(true);
+        return { ok: true, requires2FA: true, challengeId: r.challengeId };
+      }
+      return { ok: true };
     }
     const acc = mockRegistry()[id] ?? (isSetupDone() ? undefined : MOCK_ACCOUNTS[id]);
     if (!acc || acc.password !== password) return { ok: false, error: '아이디 또는 비밀번호가 올바르지 않습니다.' };
     setUser(acc.user);
     try { localStorage.setItem(MOCK_KEY, JSON.stringify(acc.user)); } catch { /* 무시 */ }
+    return { ok: true };
+  }, [server, be]);
+
+  const verify2FA = useCallback(async (challengeId: string, assertion: any): Promise<Result & { user?: User }> => {
+    if (server && be) {
+      const r = await be.verify2FA(challengeId, assertion);
+      if (r.ok) {
+        // 2FA succeeded — fetch the current user from Firebase
+        const u = await be.currentUser();
+        return { ok: true, user: u as User | undefined };
+      }
+      return r as Result;
+    }
+    // Mock mode: always succeed for testing
     return { ok: true };
   }, [server, be]);
 
@@ -252,7 +277,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <Ctx.Provider value={{
       user, isAdmin: user?.role === 'admin', ready,
-      login, createMember, removeMember, findId, resetPassword, logout, updateProfile, mock: !server,
+      login, verify2FA, createMember, removeMember, findId, resetPassword, logout, updateProfile, mock: !server,
+      pending2FA, setPending2FA,
     }}>
       {children}
     </Ctx.Provider>

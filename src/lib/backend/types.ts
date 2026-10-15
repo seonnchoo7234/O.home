@@ -43,7 +43,13 @@ export interface Backend {
   /* ---- 인증 ---- */
   currentUser(): Promise<BackendUser | null>;
   onAuthChange(cb: (u: BackendUser | null) => void): () => void;
-  signIn(id: string, password: string): Promise<{ ok: boolean; error?: string }>;
+  signIn(id: string, password: string): Promise<{ ok: boolean; error?: string; requires2FA?: boolean; challengeId?: string }>;
+  verify2FA(challengeId: string, assertion: any): Promise<{ ok: boolean; error?: string }>;
+  /* ---- 2FA (WebAuthn) ---- */
+  is2FAEnabled(uid: string): Promise<boolean>;
+  getWebAuthnCredentials(uid: string): Promise<Array<{ id: string; publicKey: Uint8Array; counter: number; name: string }>>;
+  registerWebAuthnCredential(uid: string, credential: { id: string; publicKey: Uint8Array; counter: number; name: string }): Promise<void>;
+  removeWebAuthnCredential(uid: string, credentialId: string): Promise<void>;
   signUp(id: string, password: string, nickname: string): Promise<{ ok: boolean; error?: string }>;
   signOut(): Promise<void>;
   /** 현재 로그인 세션의 접근 토큰 — 관리자 전용 서버 라우트(/api/admin/members) 호출용.

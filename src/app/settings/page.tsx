@@ -61,7 +61,7 @@ import { FIRESTORE_RULES, STORAGE_RULES } from '@/lib/firebaseRules';
 
 const CATEGORIES = [
   '디자인', '메인 페이지', '위젯', '메뉴 관리', '게시판 관리', '자관 질문', '커미션', 'TRPG', '감상타래', '메모장',
-  '폰트', '마우스 커서', 'BGM', '무드 리스트', '회원/보안', '데이터 백업',
+  '폰트', '마우스 커서', 'BGM', '무드 리스트', '2FA 설정', '회원/보안', '데이터 백업',
 ] as const;
 
 /** 색 항목 한 쌍 렌더 헬퍼 */
@@ -3125,6 +3125,162 @@ function FontPane() {
   );
 }
 
+/** 2FA 설정 탭 — WebAuthn 키 등록/삭제/비활성화 */
+function TwoFAPane() {
+  const toast = useToast();
+  const del = useConfirmDelete();
+  const be = backend();
+  const server = isServerMode();
+  const { user, setPending2FA } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [enabled, setEnabled] = useState(false);
+  const [credentials, setCredentials] = useState<Array<{ id: string; name: string }>>([]);
+  const [registering, setRegistering] = useState(false);
+  const [regName, setRegName] = useState('');
+  const [regOpen, setRegOpen] = useState(false);
+
+  useEffect(() => {
+    if (!server || !be || !user) { setLoading(false); return; }
+    let alive = true;
+    void be.is2FAEnabled(user.id).then(on => {
+      if (!alive) return;
+      setEnabled(on);
+      if (on) {
+        return be.getWebAuthnCredentials(user.id).then(creds => {
+          if (!alive) return;
+          setCredentials(creds.map(c => ({ id: c.id, name: c.name })));
+        });
+      }
+    }).catch(() => {}).finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [server, be, user]);
+
+  const doRegister = async () => {
+    if (!user || !be) return;
+    setRegistering(true);
+    try {
+      // Step 1: Get registration options
+      const res = await fetch(`/api/auth/register-webauthn?userId=${user.id}`);
+      const data = await res.json();
+      if (!data.challenge) { toast('등록 옵션을 가져오지 못했습니다'); return; }
+
+      // Step 2: Run WebAuthn registration ceremony
+      const { startRegistration } = await import('@simplewebauthn/browser');
+      const regResp = await startRegistration({ optionsJSON: data });
+
+      // Step 3: Verify and store
+      const verifyRes = await fetch('/api/auth/verify-registration', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          credential: regResp,
+          userId: user.id,
+          name: regName.trim() || 'Security Key',
+        }),
+      });
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok) { toast(verifyData.error ?? '등록 실패'); return; }
+
+      // Refresh credential list
+      const creds = await be.getWebAuthnCredentials(user.id);
+      setCredentials(creds.map(c => ({ id: c.id, name: c.name })));
+      setEnabled(true);
+      setRegOpen(false);
+      setRegName('');
+      toast('보안 키가 등록되었습니다');
+    } catch (e) {
+      toast('등록 중 오류가 발생했습니다');
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  const doRemove = async (credId: string) => {
+    if (!user || !be) return;
+    await be.removeWebAuthnCredential(user.id, credId);
+    const creds = await be.getWebAuthnCredentials(user.id);
+    setCredentials(creds.map(c => ({ id: c.id, name: c.name })));
+    if (creds.length === 0) setEnabled(false);
+    toast('보안 키가 삭제되었습니다');
+  };
+
+  if (!server) {
+    return (
+      <div className="set-sec">
+        <h3>2FA 설정</h3>
+        <div className="d">2FA 설정은 서버 모드(Firebase)에서만 사용할 수 있습니다</div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="set-sec">
+        <h3>2FA 설정</h3>
+        <div className="d">로딩 중…</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="set-sec">
+      <h3>2FA 설정</h3>
+      <div className="d">WebAuthn 보안 키로 2차 인증을 활성화합니다 — 로그인 시 생체 인식 또는 보안 키 인증이 필요합니다</div>
+
+      {!enabled ? (
+        <div className="set-row" style={{ marginTop: 8 }}>
+          <div className="l"><b>2FA 활성화</b><small>보안 키를 등록하여 2차 인증을 켭니다</small></div>
+          <button className="btn btn-dark" style={{ padding: '7px 16px', fontSize: 11 }}
+            onClick={() => setRegOpen(true)}>보안 키 등록</button>
+        </div>
+      ) : (
+        <>
+          <div className="set-row" style={{ marginTop: 8 }}>
+            <div className="l"><b>2FA 상태</b><small>현재 활성화됨 — 등록된 보안 키를 관리할 수 있습니다</small></div>
+            <span className="pill" style={{ backgroundColor: 'var(--accent)', color: 'white' }}>활성화</span>
+          </div>
+
+          <h4 style={{ marginTop: 20, marginBottom: 8, fontSize: 13 }}>등록된 보안 키</h4>
+          {credentials.length === 0 ? (
+            <p className="hint">등록된 키가 없습니다</p>
+          ) : (
+            credentials.map(cred => (
+              <div key={cred.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+                <span style={{ fontSize: 12, flex: 1 }}>{cred.name}</span>
+                <small style={{ color: 'var(--faint)', fontSize: 10 }} data-tip={cred.id}>{cred.id.slice(0, 8)}…</small>
+                <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: 10.5 }}
+                  onClick={() => del.ask(`「${cred.name}」 키를 삭제하시겠습니까?`, () => doRemove(cred.id))}>DELETE</button>
+              </div>
+            ))
+          )}
+
+          <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+            <button className="btn btn-ghost" style={{ padding: '7px 14px', fontSize: 11 }}
+              onClick={() => setRegOpen(true)}>＋ 키 추가</button>
+          </div>
+        </>
+      )}
+
+      {/* 키 등록 모달 */}
+      <Modal open={regOpen} onClose={() => { setRegOpen(false); setRegName(''); }} small
+        title="보안 키 등록"
+        desc="보안 키의 이름을 입력하고 기기를 활성화해 주세요"
+        actions={<>
+          <button className="btn btn-ghost" onClick={() => { setRegOpen(false); setRegName(''); }}>CANCEL</button>
+          <button className="btn btn-dark" onClick={doRegister} disabled={registering}>
+            {registering ? '등록 중…' : 'REGISTER'}
+          </button>
+        </>}>
+        <div style={{ display: 'grid', gap: 9, padding: '12px 0' }}>
+          <KInput placeholder="키 이름 (예: Mac Touch ID)" value={regName}
+            onChange={e => setRegName(e.target.value)} />
+          <p className="hint">보안 키 등록 시 브라우저의 WebAuthn 인증이 표시됩니다. 생체 인식(지문/Face ID) 또는 PIN을 사용하세요.</p>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
 function SettingsInner() {
   const { isAdmin } = useAuth();
   const router = useRouter();
@@ -3265,6 +3421,8 @@ function SettingsInner() {
             <FontPane />
           ) : tab === '마우스 커서' ? (
             <CursorPane />
+          ) : tab === '2FA 설정' ? (
+            <TwoFAPane />
           ) : tab === '회원/보안' ? (
             <MemberPane />
           ) : tab === '데이터 백업' ? (

@@ -4,6 +4,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import { startAuthentication } from '@simplewebauthn/browser';
 import { useToast } from '@/components/ui/Toast';
 import { KInput } from '@/components/ui/Kit';
 import { Modal } from '@/components/ui/Modal';
@@ -11,26 +12,63 @@ import { EditableDesc } from '@/components/ui/PageText';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { user, login, findId, resetPassword, mock } = useAuth();
+  const { user, login, findId, resetPassword, mock, verify2FA, pending2FA, setPending2FA } = useAuth();
   const toast = useToast();
   const [id, setId] = useState('');
   const [pw, setPw] = useState('');
   const [err, setErr] = useState('');
+  const [twoFactorChallenge, setTwoFactorChallenge] = useState<{ challenge: any; allowCredentials: any[] } | null>(null);
+  const [twoFactorChallengeId, setTwoFactorChallengeId] = useState<string | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   // 아이디/비밀번호 찾기
   const [fEmail, setFEmail] = useState('');
   const [fErr, setFErr] = useState('');
   const [fInfo, setFInfo] = useState('');     // 결과 안내 (아이디·임시 비밀번호)
 
-  // 이미 로그인 상태면 메인으로
-  useEffect(() => { if (user) router.replace('/'); }, [user, router]);
+  // 이미 로그인 상태면 메인으로 (2FA 대기 중이면 리디렉션 안 함)
+  useEffect(() => { if (user && !pending2FA) router.replace('/'); }, [user, router, pending2FA]);
 
   const doLogin = async () => {
     setErr('');
     const r = await login(id.trim(), pw);
     if (!r.ok) { setErr(r.error ?? '로그인 실패'); return; }
+    if (r.requires2FA) {
+      setTwoFactorChallengeId(r.challengeId ?? null);
+      try {
+        const res = await fetch(`/api/auth/get-challenge?userId=${id.trim()}`);
+        const data = (await res.json().catch(() => ({}))) as { challenge: any; allowCredentials: any[] };
+        if (!data.challenge) { setErr('2FA 챌린지를 가져오지 못했습니다.'); return; }
+        setTwoFactorChallenge(data);
+      } catch (e) {
+        setErr('2FA 챌린지 요청 실패');
+      }
+      return;
+    }
+    // 2FA 불필요 — 로그인 완료
+    setPending2FA(false);
     toast('로그인되었습니다');
     router.push('/');
+  };
+
+  const doVerify2FA = async () => {
+    if (!twoFactorChallenge || !twoFactorChallengeId) return;
+    setIsVerifying(true);
+    try {
+      const assertion = await startAuthentication({ optionsJSON: twoFactorChallenge });
+      const r = await verify2FA(twoFactorChallengeId, assertion); 
+      if (r.ok) {
+        setPending2FA(false);
+        toast('2FA 인증 성공');
+        router.push('/');
+      } else {
+        setErr(r.error ?? '2FA 인증 실패');
+      }
+    } catch (e) {
+      setErr('2FA 인증 중 오류가 발생했습니다.');
+    } finally {
+      setIsVerifying(false);
+    }
   };
 
   // 아이디 찾기 (v1.9) — 가입 이메일로
@@ -46,7 +84,7 @@ export default function LoginPage() {
     const r = await resetPassword(fEmail.trim());
     if (!r.ok) { setFErr(r.error ?? '요청 실패'); return; }
     if (r.tempPassword) setFInfo(`임시 비밀번호: ${r.tempPassword} — 로그인 후 마이페이지에서 변경해 주세요`);
-    else { setFindOpen(false); toast('재설정 링크를 이메일로 보냈습니다'); }
+    else { setFindOpen(false); toast('재설정 링크을 이메일로 보냈습니다'); }
   };
 
   return (
@@ -71,8 +109,22 @@ export default function LoginPage() {
           <button className="btn btn-ghost" style={{ flex: 1, justifyContent: 'center', padding: 7, fontSize: 11 }}
             onClick={() => setFindOpen(true)}>비밀번호 찾기</button>
         </div>
-        {/* (v1.9) 개발용 기본 계정 안내 제거 — 설치 화면에서 계정을 직접 지정하므로 배포본에는 불필요 */}
       </div>
+
+      {/* 2FA 인증 모달 */}
+      <Modal open={!!twoFactorChallenge} onClose={() => { setTwoFactorChallenge(null); setErr(''); }} small
+        title="2FA 인증"
+        desc="보안을 위해 2차 인증을 진행해 주세요."
+        actions={<>
+          <button className="btn btn-ghost" onClick={() => { setTwoFactorChallenge(null); }}>CANCEL</button>
+          <button className="btn btn-dark" onClick={doVerify2FA} disabled={isVerifying}>
+            {isVerifying ? '인증 중...' : '인증하기'}
+          </button>
+        </>}>
+        <div style={{ textAlign: 'center', padding: 20 }}>
+          <p>보안 키를 사용하거나 생체 인식을 완료해 주세요.</p>
+        </div>
+      </Modal>
 
       {/* 아이디·비밀번호 찾기 모달 (4.8, v1.9) — 가입 이메일 기준 */}
       <Modal open={findOpen} onClose={() => { setFindOpen(false); setFInfo(''); setFErr(''); }} small
